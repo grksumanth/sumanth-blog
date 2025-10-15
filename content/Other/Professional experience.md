@@ -1,0 +1,1 @@
+I currently work at Amazon Photos as a security engineer securing the Product. I started the security program for Photo in 2022 while in Digital security now transitioned to Photos org supporting them full time and its going great! I love the product and constantly raising the security bar.
