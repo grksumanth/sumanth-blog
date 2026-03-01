@@ -1,2 +1,3 @@
 1. Michael Burry on LLM 
 	1. [!["In sum, Language without the Capacity for Reason fails at Understanding Only with Capacity for Reason does Language unlock Understanding. Understanding, fully realized, transcends Language."](../images/LLM-MJB.jpg)](https://open.substack.com/pub/michaeljburry/p/history-rhymes-large-language-models?selection=2e6a5df3-b61f-4a0e-8684-2c63c8afab0e&utm_campaign=post-share-selection&utm_medium=web&aspectRatio=square&textColor=%23ffffff&bgImage=true)
+Hi
