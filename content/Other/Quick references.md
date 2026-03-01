@@ -1,0 +1,2 @@
+1. LLM 
+	1. !["In sum, Language without the Capacity for Reason fails at Understanding Only with Capacity for Reason does Language unlock Understanding. Understanding, fully realized, transcends Language."](https://open.substack.com/pub/michaeljburry/p/history-rhymes-large-language-models?selection=e613539a-f602-41f2-be8d-c029ebb19685&utm_campaign=post-share-selection&utm_medium=web&aspectRatio=square&textColor=%23ffffff&bgImage=true)
