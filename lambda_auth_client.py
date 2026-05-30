@@ -39,10 +39,15 @@ def lambda_handler(event, context):
     
     # 3. Construct a standard AWS STS GetCallerIdentity request
     # This request will be signed but not executed directly from the Lambda.
+    from urllib.parse import urlparse
+    parsed_url = urlparse(website_url)
+    hostname = parsed_url.hostname or "sts.amazonaws.com"
+
     sts_url = "https://sts.amazonaws.com/"
     headers = {
         "Host": "sts.amazonaws.com",
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Auth-Server-Id": hostname
     }
     body_data = "Action=GetCallerIdentity&Version=2011-06-15"
     

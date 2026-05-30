@@ -82,6 +82,67 @@ export const onRequest: PagesFunction = async (context) => {
     const headersInput = payload.headers || {};
     const bodyInput = payload.body || "Action=GetCallerIdentity&Version=2011-06-15";
 
+    // Get expected server ID (the worker's own hostname)
+    const requestUrl = new URL(request.url);
+    const expectedHostname = requestUrl.hostname;
+
+    // Helper to retrieve header values case-insensitively
+    const getHeaderValue = (headers: any, name: string): string => {
+      const lowerName = name.toLowerCase();
+      for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase() === lowerName) {
+          return Array.isArray(value) ? value[0] : (value as string);
+        }
+      }
+      return "";
+    };
+
+    // 1. Verify X-Auth-Server-Id header matches the Worker's hostname
+    const serverId = getHeaderValue(headersInput, "X-Auth-Server-Id");
+    if (!serverId) {
+      return new Response(
+        JSON.stringify({ error: "Missing required 'X-Auth-Server-Id' header in payload." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (serverId !== expectedHostname) {
+      return new Response(
+        JSON.stringify({ error: `X-Auth-Server-Id mismatch. Expected '${expectedHostname}', got '${serverId}'.` }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // 2. Verify X-Auth-Server-Id was cryptographically signed in the Authorization header
+    const authorization = getHeaderValue(headersInput, "Authorization");
+    const signedHeadersMatch = authorization.match(/SignedHeaders=([^,]+)/i);
+    if (!signedHeadersMatch) {
+      return new Response(
+        JSON.stringify({ error: "Invalid Authorization header format. Could not locate SignedHeaders." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const signedHeaders = signedHeadersMatch[1].split(";");
+    if (!signedHeaders.includes("x-auth-server-id")) {
+      return new Response(
+        JSON.stringify({ error: "The 'X-Auth-Server-Id' header must be cryptographically signed by the client (included in SigV4 SignedHeaders)." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     // Validate the STS URL to prevent Server-Side Request Forgery (SSRF)
     if (!isStsUrl(stsUrl)) {
       return new Response(
@@ -105,7 +166,8 @@ export const onRequest: PagesFunction = async (context) => {
         lowerKey.startsWith("x-amz-") ||
         lowerKey === "authorization" ||
         lowerKey === "content-type" ||
-        lowerKey === "accept"
+        lowerKey === "accept" ||
+        lowerKey === "x-auth-server-id"
       ) {
         const headerValue = Array.isArray(value) ? value[0] : value;
         if (typeof headerValue === "string") {
@@ -113,6 +175,7 @@ export const onRequest: PagesFunction = async (context) => {
         }
       }
     }
+
 
     // Forward the request to the official AWS STS endpoint
     const stsResponse = await fetch(stsUrl, {
