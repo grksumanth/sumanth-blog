@@ -44,6 +44,7 @@ import urllib3
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
+from urllib.parse import urlparse
 
 def lambda_handler(event, context):
     website_url = event.get("website_url") or os.environ.get("WEBSITE_URL")
@@ -52,19 +53,25 @@ def lambda_handler(event, context):
     session = boto3.Session()
     credentials = session.get_credentials().get_frozen_credentials()
     
-    # 2. Construct the STS request
+    # 2. Extract website hostname to bind into the signature
+    parsed_url = urlparse(website_url)
+    hostname = parsed_url.hostname or "sts.amazonaws.com"
+    
+    # 3. Construct the STS request with target Server ID
     sts_url = "https://sts.amazonaws.com/"
     headers = {
         "Host": "sts.amazonaws.com",
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Auth-Server-Id": hostname  # Cryptographically binds the recipient website
     }
     body_data = "Action=GetCallerIdentity&Version=2011-06-15"
     
-    # 3. Cryptographically sign the request (SigV4)
+    # 4. Cryptographically sign the request (SigV4)
+    # The X-Auth-Server-Id header will be added to the signature (SignedHeaders)
     aws_request = AWSRequest(method="POST", url=sts_url, headers=headers, data=body_data)
     SigV4Auth(credentials, "sts", "us-east-1").add_auth(aws_request)
     
-    # 4. POST the signed request headers to Cloudflare
+    # 5. POST the signed request headers to Cloudflare
     payload = {
         "url": sts_url,
         "method": "POST",
@@ -87,21 +94,58 @@ The Cloudflare Worker receives the signed headers, forwards them directly to AWS
 export const onRequest = async (context) => {
   const { request } = context;
   const payload = await request.json();
+  const headersInput = payload.headers || {};
 
-  // 1. SSRF Protection: Only allow official AWS STS hosts
+  // 1. Get expected Server ID (the worker's own hostname)
+  const expectedHostname = new URL(request.url).hostname;
+  
+  // Retrieve X-Auth-Server-Id from client payload headers
+  const getHeader = (headers: any, name: string) => {
+    const lower = name.toLowerCase();
+    const entry = Object.entries(headers).find(([k]) => k.toLowerCase() === lower);
+    return entry ? (Array.isArray(entry[1]) ? entry[1][0] : entry[1]) : "";
+  };
+  
+  // 2. Verify Server ID matches and was signed
+  const serverId = getHeader(headersInput, "X-Auth-Server-Id");
+  if (serverId !== expectedHostname) {
+    return new Response("X-Auth-Server-Id mismatch or missing", { status: 400 });
+  }
+  
+  const authorization = getHeader(headersInput, "Authorization") as string;
+  const signedHeaders = authorization.match(/SignedHeaders=([^,]+)/i)?.[1]?.split(";") || [];
+  if (!signedHeaders.includes("x-auth-server-id")) {
+    return new Response("The X-Auth-Server-Id header was not signed by the client", { status: 400 });
+  }
+
+  // 3. SSRF Protection: Only allow official AWS STS hosts
   const isSts = /^sts\.(?:[a-z0-9-]+\.)*amazonaws\.com(?:\.cn)?$/.test(new URL(payload.url).hostname);
   if (!isSts) return new Response("Invalid URL", { status: 400 });
 
-  // 2. Forward the signed headers to AWS STS
+  // 4. Construct headers and forward the signed request to AWS STS
+  const headersToSend = new Headers();
+  for (const [key, value] of Object.entries(headersInput)) {
+    const lowerKey = key.toLowerCase();
+    if (
+      lowerKey.startsWith("x-amz-") ||
+      lowerKey === "authorization" ||
+      lowerKey === "content-type" ||
+      lowerKey === "accept" ||
+      lowerKey === "x-auth-server-id"
+    ) {
+      headersToSend.set(key, Array.isArray(value) ? value[0] : (value as string));
+    }
+  }
+
   const stsResponse = await fetch(payload.url, {
     method: payload.method,
-    headers: payload.headers,
+    headers: headersToSend,
     body: payload.body,
   });
 
   const responseText = await stsResponse.text();
   
-  // 3. Parse XML/JSON response to extract ARN, Account, and UserId
+  // 5. Parse response to extract authenticated details
   const arn = responseText.match(/<Arn>([^<]+)<\/Arn>/)?.[1];
   const account = responseText.match(/<Account>([^<]+)<\/Account>/)?.[1];
   
