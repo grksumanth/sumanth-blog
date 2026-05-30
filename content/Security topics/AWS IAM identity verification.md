@@ -170,3 +170,21 @@ A malicious actor could intercept the signed request headers and replay them to 
 ### 3. Service Restriction (STS Only)
 The signature **must** be generated specifically for the `sts` service (using the credential scope `<date>/<region>/sts/aws4_request`). If the client attempts to sign the request for any other AWS service (such as S3, EC2, or DynamoDB), the verification will fail. This is because the signature is cryptographically tied to the service name. If the Worker forwards a request signed for `s3` to `sts.amazonaws.com`, AWS STS will reject it with a `SignatureDoesNotMatch` error.
 
+---
+
+## 🆚 Comparison: Edge Verification vs. AWS API Gateway
+
+A common question is: **How does this differ from AWS API Gateway's native IAM Authorization?**
+
+### AWS API Gateway (First-Party Verification)
+API Gateway is part of the AWS ecosystem. When it receives a request signed with IAM credentials (using the service scope `execute-api` and the API's endpoint as the `Host`):
+1. **Natively Verifies**: API Gateway has direct, secure backend access to AWS's internal IAM database. It looks up the `Access Key ID` and retrieves the corresponding `Secret Access Key` internally.
+2. **Local Recalculation**: It decrypts and verifies the signature itself without having to proxy requests to an external service like STS.
+3. **No Replay Threat**: Because the signature is natively bound to the API Gateway's specific endpoint host, there is no threat of replay across different systems, meaning custom headers like `X-Auth-Server-Id` are unnecessary.
+
+### Edge Worker (Third-Party Verification)
+A Cloudflare Worker runs entirely outside of AWS. Because Cloudflare does not (and should not) have access to AWS's internal database of secret keys:
+1. **Delegates Trust**: The Worker must act as a proxy, forwarding the client-signed request to AWS STS to do the cryptographic verification.
+2. **Requires Server ID Binding**: Because the request is addressed to AWS STS, the `Host` header must say `sts.amazonaws.com`. To prevent this STS signature from being stolen and replayed across different sites, the custom `X-Auth-Server-Id` header is mandatory to lock the signature to your specific domain.
+
+
