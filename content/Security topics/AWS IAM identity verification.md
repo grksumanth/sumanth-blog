@@ -166,3 +166,7 @@ Because the Cloudflare Worker receives a URL from the client and executes an out
 A malicious actor could intercept the signed request headers and replay them to gain unauthorized access. To mitigate this:
 *   Use a custom header like `X-Amz-Security-Token` (standard for session credentials, expires after a short period).
 *   Enforce a custom authentication header in the signature, such as `X-Auth-Server-Id` containing the domain of your website. Because this header is included in the cryptographic signature, AWS STS verification will fail if the signature is replayed against a different endpoint.
+
+### 3. Service Restriction (STS Only)
+The signature **must** be generated specifically for the `sts` service (using the credential scope `<date>/<region>/sts/aws4_request`). If the client attempts to sign the request for any other AWS service (such as S3, EC2, or DynamoDB), the verification will fail. This is because the signature is cryptographically tied to the service name. If the Worker forwards a request signed for `s3` to `sts.amazonaws.com`, AWS STS will reject it with a `SignatureDoesNotMatch` error.
+
