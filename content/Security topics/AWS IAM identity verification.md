@@ -172,6 +172,36 @@ The signature **must** be generated specifically for the `sts` service (using th
 
 ---
 
+## 📦 Signing and Verifying Request Payloads
+
+If your Cloudflare Worker functions as a backend API server that processes actions (such as database writes), you might want to guarantee that the client's **request payload/body** has not been modified or tampered with in transit.
+
+Since AWS STS only understands the `GetCallerIdentity` action, you cannot place your custom JSON payload directly in the STS request body. However, you can secure it using one of two design patterns:
+
+### Pattern A: Payload Hashing (Recommended)
+This is the standard approach used by AWS itself for signing bodies.
+
+1. **Client-Side Hashing**: The client computes the SHA-256 hash of their JSON API payload (e.g. `{"action": "create_user"}`) and adds it as a custom header:
+   ```http
+   X-Auth-Payload-Sha256: <sha256-hex-hash>
+   ```
+2. **Signature Binding**: The client includes `x-auth-payload-sha256` in the list of `SignedHeaders` and signs the request.
+3. **Server-Side Integrity Check**: The Worker hashes the received API body, compares it with the `X-Auth-Payload-Sha256` header, and verifies that this header was signed by the client. If an attacker modifies the body, the hash will mismatch; if they modify the hash, the AWS signature will fail.
+
+### Pattern B: Parameter Headers
+If your API payload is extremely simple (e.g., just a few key-value strings), you can pass them directly as custom headers:
+* `X-API-Action: create_user`
+* `X-API-User: alice`
+
+You simply list these headers in the SigV4 `SignedHeaders` list to cryptographically sign them.
+
+#### 🆚 Comparison: Payload Hashing vs. Parameter Headers
+* **Header Size Limits**: HTTP servers enforce strict limits on total header size (usually 8KB - 16KB). Large payloads or file uploads will exceed this limit and throw a `431 Request Header Fields Too Large` error, making Payload Hashing the only viable option.
+* **Complex Data**: Headers are flat key-value strings. Representing nested arrays or objects in headers is very awkward compared to a standard JSON body secured with Payload Hashing.
+* **STS Limits**: Unrecognized custom headers are permitted by STS, but excessive headers or strange characters can trigger STS API rejections.
+
+---
+
 ## 🆚 Comparison: Edge Verification vs. AWS API Gateway
 
 A common question is: **How does this differ from AWS API Gateway's native IAM Authorization?**
