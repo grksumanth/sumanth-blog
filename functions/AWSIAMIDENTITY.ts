@@ -143,6 +143,45 @@ export const onRequest: PagesFunction = async (context) => {
       );
     }
 
+    // 3. Optional: Verify X-Auth-Payload-Sha256 if present
+    const payloadSha256 = getHeaderValue(headersInput, "X-Auth-Payload-Sha256");
+    if (payloadSha256) {
+      if (!signedHeaders.includes("x-auth-payload-sha256")) {
+        return new Response(
+          JSON.stringify({ error: "The 'X-Auth-Payload-Sha256' header must be cryptographically signed by the client (included in SigV4 SignedHeaders)." }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      if (payload.api_payload === undefined) {
+        return new Response(
+          JSON.stringify({ error: "The 'X-Auth-Payload-Sha256' header is present but 'api_payload' is missing from the request." }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      const apiPayloadStr = typeof payload.api_payload === "object"
+        ? JSON.stringify(payload.api_payload)
+        : String(payload.api_payload);
+
+      const calculatedHash = await sha256(apiPayloadStr);
+      if (calculatedHash !== payloadSha256.toLowerCase()) {
+        return new Response(
+          JSON.stringify({ error: `Payload integrity check failed. Expected SHA256 '${payloadSha256}', calculated '${calculatedHash}'.` }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
+
     // Validate the STS URL to prevent Server-Side Request Forgery (SSRF)
     if (!isStsUrl(stsUrl)) {
       return new Response(
@@ -167,7 +206,8 @@ export const onRequest: PagesFunction = async (context) => {
         lowerKey === "authorization" ||
         lowerKey === "content-type" ||
         lowerKey === "accept" ||
-        lowerKey === "x-auth-server-id"
+        lowerKey === "x-auth-server-id" ||
+        lowerKey === "x-auth-payload-sha256"
       ) {
         const headerValue = Array.isArray(value) ? value[0] : value;
         if (typeof headerValue === "string") {
@@ -297,4 +337,12 @@ function isStsUrl(urlStr: string): boolean {
 function extractXmlTag(xml: string, tag: string): string {
   const match = xml.match(new RegExp(`<${tag}>([^<]+)</${tag}>`));
   return match ? match[1] : "";
+}
+
+// Helper function to calculate SHA-256 hash using Web Crypto API
+async function sha256(message: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 }
