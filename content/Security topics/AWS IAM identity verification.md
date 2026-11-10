@@ -1,5 +1,7 @@
 ---
 title: AWS IAM Identity Verification at the Edge
+tags:
+  - AWS
 ---
 
 When building integrations between non-AWS environments (like Cloudflare Workers, Kubernetes, or HashiCorp Vault) and AWS resources, a common challenge arises: **How can a third-party server securely verify the AWS IAM identity (User or Role ARN) of an incoming requester?**
